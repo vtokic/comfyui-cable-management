@@ -29,6 +29,11 @@ Core suite (each prints PASS/FAIL):
   plus undo of a paste
 - `pastechain.mjs` -- daisy-chained provenance: paste a whole A ==> C ==> D chain (both
   wires off A's primitive), and delete C mid-chain (provenance retargets to A's pin)
+- `pathing-bus.mjs` -- comb buses: spawn a full mirror off a gate's bus pin (head
+  promoted with a typed channel table), float-park and tap channels (real links
+  riding every segment's teeth), trunk-collapsed gap segments, override at the
+  mirror migrating shadowed consumers while upstream keeps the original value,
+  sticky channel identity across unplugs, save/reload, decompose degradation
 - `passcomb.mjs` -- widget passthrough x comb: park on a gate as a floating lane,
   the park survives the next graph-surface press (both reapers count floating links
   as consumers now), out-pin pull completes onto a real input riding the lane teeth,

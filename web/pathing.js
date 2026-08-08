@@ -15,8 +15,8 @@
 // non-attachment is the canonical failure mode (WGIMCO-NATIVE.md section 0).
 
 import { app } from "../../scripts/app.js";
-import { beginFrame, debugRoutes, routeFor, stats } from "./pathing/registry.js";
-import { clearOverlay, combAt, drawGates, gestureFloatingEnroll, installApi, toothOf } from "./pathing/combs.js";
+import { beginFrame, debugRoutes, drawTrunks, routeFor, stats } from "./pathing/registry.js";
+import { busGateDrop, clearOverlay, combAt, drawGates, gestureFloatingEnroll, installApi, toothOf } from "./pathing/combs.js";
 import { installGestures } from "./pathing/combgestures.js";
 import { emit, pointAt } from "./pathing/trace.js";
 import { handlePinDrop, installPinDrops } from "./drops.js";
@@ -61,6 +61,12 @@ function tryPatch() {
         beginFrame(this);
       } catch (err) {
         console.warn("cablemanagement combs: beginFrame failed", err);
+      }
+      // Trunk sheaths under the links: channel segments overdraw them into one cable.
+      try {
+        drawTrunks(ctx, this);
+      } catch (err) {
+        console.warn("cablemanagement bus: trunk draw failed", err);
       }
     }
     const r = origDrawConnections.call(this, ctx);
@@ -194,6 +200,14 @@ function tryDropSeams() {
         try {
           if (active()) {
             const hit = combAt(g, event.canvasX, event.canvasY);
+            // Bussed gates resolve by CHANNEL first: an input-drag dropped on a
+            // pin taps that channel's driver, an output-drag on a mirror's
+            // in-gate overrides it (bus round). Falls through to gate parking
+            // (heads) or core (mirrors refuse local lanes) when not a bus drop.
+            if (hit && busGateDrop(g, lc, hit, event.canvasY)) {
+              g.setDirtyCanvas(true, true);
+              return;
+            }
             if (hit && hit.zone !== "pins" && gestureFloatingEnroll(g, lc, hit.comb)) {
               g.setDirtyCanvas(true, true);
               return; // no dispatch -> no search box; caller's cleanup resets the connector

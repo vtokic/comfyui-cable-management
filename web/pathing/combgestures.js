@@ -11,6 +11,10 @@
 //                                          resume a dangling one; never moves)
 //   gate body dragged                   -> gate moves (teeth follow via combPass)
 //   hover glyph clicked                 -> gate flips horizontally
+//   bus pin pulled to empty canvas      -> a mirror comb spawns there (bus round)
+//   empty out-pin pulled (bussed comb)  -> the channel's driver is spliced through
+//                                          as a floating lane and the pull resumes
+//                                          it -- core's drag end to end
 // Core does all reroute dragging; we only observe presses and interpret drops --
 // except the out-pull, which we start (dragFromReroute) and finish (dropLinks +
 // reset) ourselves, because core never saw the swallowed pointerdown and its own
@@ -19,8 +23,9 @@
 // canvas element, and same-target capture runs in registration order, so an
 // element-level listener could never preempt them.
 import {
-  clearGateSelection, combAt, detachLane, dissolveComb, gestureCreate,
-  gestureEnroll, isGateSelected, selectGate, selectedGates, setHover, toothOf
+  busSpawn, busTapFloat, clearGateSelection, combAt, detachLane, dissolveComb,
+  gestureCreate, gestureEnroll, isGateSelected, pinIndexAt, selectGate,
+  selectedGates, setBusPreview, setHover, toothOf
 } from './combs.js'
 // Every graph resolution here must be the graph ON SCREEN -- the root graph is not it
 // inside a subgraph, which made all comb gestures dead there and let presses hit-test
@@ -31,6 +36,7 @@ export function installGestures(app, active) {
   let gateDrag = null // {press: [x,y], gates: [{comb, which, origin}]}
   let press = null // reroute press being core-dragged: {rid, x, y}
   let pullDrag = false // out-tooth pull: we own this link drag end to end
+  let busDrag = null // bus-pin pull: {from: comb, press: [x,y]}; release on empty spawns a mirror
   // Link drags born on the CANVAS element (reroute slot pulls, our tooth pulls)
   // have no Vue drag session -- the composable that snaps the preview to a
   // compatible slot and keeps it moving over node DOM only serves drags started
@@ -165,6 +171,17 @@ export function installGestures(app, active) {
 
       const [x, y] = graphPt(e)
       const hit = combAt(g, x, y)
+      if (hit?.zone === 'bus') {
+        // Bus-pin pull (out-gates only): release on empty canvas births a mirror
+        // there. In-gate tabs are drop targets, not drag sources -- fall through.
+        if (hit.which === 'out') {
+          busDrag = { from: hit.comb, press: [x, y] }
+          setBusPreview({ from: hit.comb, to: [x, y] })
+          g.setDirtyCanvas(true, true)
+          e.stopPropagation(); e.preventDefault()
+        }
+        return
+      }
       if (hit?.zone === 'flip') {
         hit.comb[hit.which].pins = hit.comb[hit.which].pins === 'left' ? 'right' : 'left'
         g.setDirtyCanvas(true, true)
@@ -206,6 +223,28 @@ export function installGestures(app, active) {
       if (!e.shiftKey) clearGateSelection()
 
       const r = rerouteNear(g, x, y)
+      // Empty pin on a bussed out-gate: the channel has a driver upstream but no
+      // tooth here yet. Splice a floating continuation through the chain and
+      // resume it with core's own drag -- the drop machinery is then exactly the
+      // out-tooth pull's (bus round).
+      if (!r && hit?.zone === 'pins' && hit.comb.bus && hit.which === 'out') {
+        const k = pinIndexAt(hit.comb, 'out', y)
+        const l = k >= 0 ? hit.comb.lanes[k] : null
+        const empty = !l || l.out == null || !g.reroutes?.get?.(l.out)
+        if (empty) {
+          const lc = app.canvas.linkConnector
+          if (lc && !lc.isConnecting) {
+            const terminus = busTapFloat(g, hit.comb, k)
+            if (terminus) {
+              lc.dragFromReroute(g, terminus)
+              pullDrag = true
+              g.setDirtyCanvas(true, true)
+              e.stopPropagation(); e.preventDefault()
+            }
+          }
+          return
+        }
+      }
       if (r) {
         const t = toothOf(r.id)
         if (t?.side === 'out') {
@@ -247,6 +286,11 @@ export function installGestures(app, active) {
     (e) => {
       if (!active()) return
       const [x, y] = graphPt(e)
+      if (busDrag) {
+        setBusPreview({ from: busDrag.from, to: [x, y] })
+        activeGraph(app)?.setDirtyCanvas(true, true)
+        return
+      }
       if (pullDrag) {
         // Preview rides core's connecting_links; we drive the snap position (and
         // with it, motion over node DOM -- graph_mouse freezes there).
@@ -344,6 +388,8 @@ export function installGestures(app, active) {
       follow = null
       press = null
       canvasPress = false
+      busDrag = null
+      setBusPreview(null)
     },
     true
   )
@@ -352,6 +398,23 @@ export function installGestures(app, active) {
     'pointerup',
     (e) => {
       canvasPress = false
+      if (busDrag) {
+        const d = busDrag
+        busDrag = null
+        setBusPreview(null)
+        const g = activeGraph(app)
+        if (g) {
+          const [x, y] = graphPt(e)
+          // A click is not a pull, and a release over any comb is a no-op in v1
+          // (re-parenting existing combs is a later round -- lane identity maps
+          // are ambiguous). Empty canvas births the mirror at the pointer.
+          if (Math.hypot(x - d.press[0], y - d.press[1]) >= 6 && !combAt(g, x, y)) {
+            busSpawn(g, d.from, x, y)
+          }
+          g.setDirtyCanvas(true, true)
+        }
+        return
+      }
       if (pullDrag) {
         pullDrag = false
         const lc = app.canvas?.linkConnector

@@ -44,3 +44,10 @@ recent ComfyUI (tested on 0.28-0.30, frontend 1.47-1.48) with Nodes 2.0.
     inputs and unused outputs
 - Ribbons: stack reroutes on top of each other and they bundle into one
   ribbon cable
+- Buses: pull a comb gate's bus pin onto empty canvas and the whole ribbon
+  continues there as a single trunk cable -- no re-wiring every lane. The new
+  comb mirrors all of the original's channels: drag off any pin to tap just the
+  value you need, or drop a new source on a channel's pin to override it from
+  that point on (consumers downstream follow the override, taps upstream keep
+  the original). Everything materialises as ordinary links, so workflows keep
+  running with the extension removed.

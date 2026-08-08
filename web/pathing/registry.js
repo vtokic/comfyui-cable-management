@@ -4,7 +4,10 @@
 import { offsetStrand, route } from './router.js'
 import { measure } from './trace.js'
 import { nudgePass } from './nudge.js'
-import { combCrossing, combPass, crossingPts, gateRects, toothOf } from './combs.js'
+import {
+  busCrossing, busCrossingPts, busSegments, busTrunk, combCrossing, combPass,
+  crossingPts, gateRects, getBusPreview, busNotch, toothOf
+} from './combs.js'
 
 const cache = new Map() // linkId|sx|sy|ex|ey -> {key, raw, pts, m, version}
 let obstacles = []
@@ -74,6 +77,46 @@ export function beginFrame(canvas) {
     nudgePass(live.filter((e) => !e.comb), obstacles)
     for (const e of live) e.m = measure(e.pts)
   }
+}
+
+// Trunk furniture, drawn between beginFrame and core's link pass so channel
+// segments land ON TOP of the sheath (coincident strokes inside a fat outline
+// read as one cable). Lives here, not in combs.js, because the trunk template
+// routes against THIS frame's obstacle snapshot. Also renders the bus-pull
+// preview (gesture layer feeds it) as a dashed leader.
+export function drawTrunks(ctx, canvas) {
+  const g = canvas?.graph
+  if (!g) return
+  const segs = busSegments(g)
+  const pv = getBusPreview()
+  if (!segs.length && !pv) return
+  const L = window.LiteGraph
+  const grid = L?.alwaysSnapToGrid && L.CANVAS_GRID_SIZE > 0 ? L.CANVAS_GRID_SIZE : 0
+  const clearance = grid ? Math.ceil(16 / grid) * grid : 16
+  ctx.save()
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  ctx.strokeStyle = L?.NODE_DEFAULT_BOXCOLOR ?? '#666'
+  ctx.lineWidth = 7 // sheath: wider than the 3px strands it wraps
+  for (const [up, down] of segs) {
+    const tpl = busTrunk(g, up, down, obstacles, clearance, version)
+    if (!tpl || tpl.length < 2) continue
+    ctx.beginPath()
+    ctx.moveTo(tpl[0][0], tpl[0][1])
+    for (let k = 1; k < tpl.length; k++) ctx.lineTo(tpl[k][0], tpl[k][1])
+    ctx.stroke()
+  }
+  if (pv?.from) {
+    const a = busNotch(pv.from.out, pv.from.lanes.length)
+    ctx.setLineDash([6, 4])
+    ctx.lineWidth = 3
+    ctx.beginPath()
+    ctx.moveTo(a[0], a[1])
+    ctx.lineTo(pv.to[0], pv.to[1])
+    ctx.stroke()
+    ctx.setLineDash([])
+  }
+  ctx.restore()
 }
 
 // Same-pair bundles are rebuilt as RIBBON STRANDS: the median member's A* route is
@@ -326,6 +369,29 @@ export function routeFor(canvas, linkData) {
       }
       if (canvas.pointer?.isDown) return hit && hit.raw ? hit : null
       const raw = crossingPts(g, cross.comb, cross.lane, obstacles, clearance, version)
+      const entry = raw
+        ? {
+            key, raw, pts: raw.map((p) => [p[0], p[1]]), m: measure(raw), version,
+            tick, comb: true, start: [s.x, s.y], end: [e.x, e.y]
+          }
+        : { key, raw: null, version, tick }
+      cache.set(key, entry)
+      return raw ? entry : null
+    }
+    // Bus crossing: the teeth are one channel's out/in pair across a bus edge --
+    // the segment is the trunk. Every channel shares the template past the pin
+    // gutter, so the strokes overdraw into one cable inside the furniture sheath
+    // (drawTrunks); comb-managed like ribbons, so the nudge leaves it alone.
+    const bx = rS && rE ? busCrossing(rS.id, rE.id) : null
+    if (bx) {
+      const key = `${linkData.id}|B${bx.down.id}|${bx.lane}|${bx.up.lanes.length}/${bx.down.lanes.length}|${s.x | 0},${s.y | 0}|${e.x | 0},${e.y | 0}`
+      const hit = cache.get(key)
+      if (hit && hit.version === version) {
+        hit.tick = tick
+        return hit.raw ? hit : null
+      }
+      if (canvas.pointer?.isDown) return hit && hit.raw ? hit : null
+      const raw = busCrossingPts(g, bx.up, bx.down, bx.lane, obstacles, clearance, version)
       const entry = raw
         ? {
             key, raw, pts: raw.map((p) => [p[0], p[1]]), m: measure(raw), version,
