@@ -7,8 +7,11 @@
 // (5) override at the mirror migrates shadowed downstream consumers onto the new
 // source while the head's own links keep their original value; (6) channel
 // identity is sticky -- unplugging a head lane nulls it in place, no index slide,
-// type retained; (7) save/reload revives records, table, and wiring; (8)
-// decomposing the mirror leaves every materialised link flowing plain.
+// type retained; (7) save/reload revives records, table, and wiring; (8) deleting
+// the override's SOURCE reverts the channel -- the rider re-taps from the
+// upstream driver through fresh teeth; (9) the guard: a consumer unplugged while
+// its source is alive STAYS unplugged (user-directed removals never resurrect);
+// (10) decomposing the mirror leaves every materialised link flowing plain.
 import { chromium } from 'playwright'
 const b = await chromium.launch({ headless: true })
 const page = await b.newPage({ viewport: { width: 1900, height: 1000 } })
@@ -149,14 +152,42 @@ const out = await page.evaluate(async () => {
     busSegs: busSegs().length
   }
 
-  // (8) decompose the mirror: every materialised link keeps flowing plain
+  // (8) restore on driver death: deleting the override's SOURCE takes its rider
+  // down in one core cascade; the next combPass re-taps it from the upstream
+  // driver (s2, via the head's lane 1) -- "disconnect an override and the
+  // channel reverts to what the bus was providing".
+  g.remove(g.getNodeById(y.id))
+  await settle()
+  const rlink = () => {
+    const lid = g.getNodeById(consumer1.id)?.inputs?.[0]?.link
+    return lid != null ? g._links.get(lid) : null
+  }
+  const restoredChain = chain(rlink())
+  const hl8 = headRec(), ml8 = rec()
+  report.restore = {
+    origin: rlink()?.origin_id ?? null,
+    s2id: s2.id,
+    chainLen: restoredChain.length,
+    headTeeth: restoredChain[0] === hl8?.lanes?.[1]?.in && restoredChain[1] === hl8?.lanes?.[1]?.out,
+    mirrorTeeth: restoredChain[2] === ml8?.lanes?.[1]?.in && restoredChain[3] === ml8?.lanes?.[1]?.out
+  }
+
+  // (9) the guard: unplug the restored consumer while its source is ALIVE.
+  // The removal is user-directed, so it must STAY removed -- no resurrection.
+  const rl9 = rlink()
+  if (rl9) g.removeLink(rl9.id)
+  await settle()
+  report.noResurrect = {
+    input: g.getNodeById(consumer1.id)?.inputs?.[0]?.link ?? null,
+    lane1: rec()?.lanes?.[1] ?? null
+  }
+
+  // (10) decompose the mirror: the surviving materialised link keeps flowing plain
   C.decompose(mirrorId)
   await settle()
-  const pc1 = g.getNodeById(consumer1.id)?.inputs?.[0]?.link
   const pc2 = g.getNodeById(consumer2.id)?.inputs?.[0]?.link
   report.decompose = {
     records: g.extra?.cablemanagement_combs?.length,
-    consumer1Fed: pc1 != null && g._links.get(pc1)?.origin_id === y.id,
     consumer2Fed: pc2 != null && g._links.get(pc2)?.origin_id === s1.id
   }
   return report
@@ -185,7 +216,10 @@ ok('sticky type survives the unplug', out.sticky.chan2Type === 'MODEL', `got ${o
 ok('reload revives bus records', out.reload.records === 2 && out.reload.headChan?.length === 3 && out.reload.mirrorFrom != null, JSON.stringify(out.reload))
 ok('reload keeps the override wiring', out.reload.consumer1Origin === out.override.yid, `got ${out.reload.consumer1Origin}`)
 ok('reload re-renders the trunk', out.reload.busSegs >= 1, `got ${out.reload.busSegs}`)
-ok('decompose leaves links flowing', out.decompose.records === 1 && out.decompose.consumer1Fed && out.decompose.consumer2Fed, JSON.stringify(out.decompose))
+ok('restore: rider re-taps from upstream on source death', out.restore.origin === out.restore.s2id, JSON.stringify({ o: out.restore.origin, s2: out.restore.s2id }))
+ok('restore chain rides head + fresh mirror teeth', out.restore.chainLen === 4 && out.restore.headTeeth && out.restore.mirrorTeeth, JSON.stringify(out.restore))
+ok('guard: user unplug stays unplugged', out.noResurrect.input == null && out.noResurrect.lane1?.in == null, JSON.stringify(out.noResurrect))
+ok('decompose leaves links flowing', out.decompose.records === 1 && out.decompose.consumer2Fed, JSON.stringify(out.decompose))
 console.log('page errors:', errs.length ? errs : 'none')
 console.log(pass ? 'PASS' : 'FAIL')
 await b.close()

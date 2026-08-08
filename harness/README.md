@@ -33,7 +33,9 @@ Core suite (each prints PASS/FAIL):
   promoted with a typed channel table), float-park and tap channels (real links
   riding every segment's teeth), trunk-collapsed gap segments, override at the
   mirror migrating shadowed consumers while upstream keeps the original value,
-  sticky channel identity across unplugs, save/reload, decompose degradation
+  sticky channel identity across unplugs, save/reload, override revert (source
+  death re-taps riders upstream; user unplugs stay unplugged), decompose
+  degradation
 - `passcomb.mjs` -- widget passthrough x comb: park on a gate as a floating lane,
   the park survives the next graph-surface press (both reapers count floating links
   as consumers now), out-pin pull completes onto a real input riding the lane teeth,

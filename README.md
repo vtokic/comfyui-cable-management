@@ -49,5 +49,7 @@ recent ComfyUI (tested on 0.28-0.30, frontend 1.47-1.48) with Nodes 2.0.
   comb mirrors all of the original's channels: drag off any pin to tap just the
   value you need, or drop a new source on a channel's pin to override it from
   that point on (consumers downstream follow the override, taps upstream keep
-  the original). Everything materialises as ordinary links, so workflows keep
-  running with the extension removed.
+  the original). Disconnect an override -- delete its source or pull its strand
+  out of the gate -- and its consumers revert to what the bus was providing.
+  Everything materialises as ordinary links, so workflows keep running with the
+  extension removed.

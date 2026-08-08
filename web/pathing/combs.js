@@ -95,6 +95,25 @@ function gateGeom(gate, n) {
 let toothIndex = new Map()
 const tplCache = new Map() // combId -> {stamp, tpl}
 
+// Last frame's rider census per bussed lane: `${combId}|${ch}` -> {origin, riders,
+// depth}. This is what makes override removal REVERT instead of orphan: when a
+// lane dies, the census says who was riding it and whose output drove it. Restore
+// fires ONLY if that origin node is GONE from the graph -- a deleted source takes
+// its riders down in one core cascade, while a user unplugging consumers one by
+// one leaves the origin standing, and those removals must stay removed.
+let riderMemo = new Map()
+
+function capRiders(graph, comb, tout) {
+  const o = drivenBy(graph, tout)
+  if (!o) return null
+  const riders = []
+  for (const id of tout.linkIds ?? []) {
+    const ll = graph._links?.get?.(Number(id))
+    if (ll) riders.push({ tid: ll.target_id, tslot: ll.target_slot })
+  }
+  return { origin: o.node.id, riders, depth: chainPath(graph, comb).length }
+}
+
 // Gate bodies are routing obstacles. Without them the Hanan grid has NO lanes
 // near a gate (lanes are obstacle edges), so a flipped face's wrap literally
 // cannot exist -- A* fails and the fallback runs the ribbon straight through the
@@ -143,7 +162,17 @@ export function combPass(graph, canvas) {
   // before the fix carry them into the session.
   const scrub = (r) => {
     for (const id of [...(r.floatingLinkIds ?? [])]) {
-      if (!graph.floatingLinks?.has?.(id)) r.floatingLinkIds.delete(id)
+      const fl = graph.floatingLinks?.get?.(id)
+      if (!fl) { r.floatingLinkIds.delete(id); continue }
+      // Zombie float: the anchored end's node is gone. Core cleans real links on
+      // node removal, but a parked float can outlive its source -- and it would
+      // hold the lane "wired" forever (same failure class as the phantom ids),
+      // which on a bussed lane also blocks the death event the restore keys on.
+      const anchor = Number(fl.origin_id) !== -1 ? fl.origin_id : fl.target_id
+      if (anchor != null && Number(anchor) !== -1 && !graph.getNodeById(anchor)) {
+        graph.removeFloatingLink?.(fl)
+        r.floatingLinkIds.delete(id)
+      }
     }
   }
   const wired = (r) => {
@@ -151,24 +180,40 @@ export function combPass(graph, canvas) {
     return (r.floatingLinkIds?.size ?? 0) > 0
   }
   busPass(graph, recs)
+  const prevRiders = riderMemo
+  const nextRiders = new Map()
+  const deaths = [] // bussed lanes that lost their wires this frame
   for (let i = recs.length - 1; i >= 0; i--) {
     const comb = recs[i]
     if (comb.bus) {
       // Bussed lanes are CHANNELS: the identity is the head's table, not the wire,
       // so a dead lane nulls its teeth in place -- deleting it would slide every
-      // index below and retarget every downstream override (bus round).
-      for (const l of comb.lanes) {
+      // index below and retarget every downstream override (bus round). Death and
+      // survival both feed the rider census (restore-on-driver-death, below).
+      comb.lanes.forEach((l, ch) => {
+        const key = `${comb.id}|${ch}`
+        const finish = (tout) => {
+          const m = tout ? capRiders(graph, comb, tout) : null
+          if (m) { nextRiders.set(key, m); return }
+          const prev = prevRiders.get(key)
+          if (prev) deaths.push({ comb, ch, memo: prev })
+        }
         const tin = l.in != null ? graph.reroutes?.get?.(l.in) : null
         const tout = l.out != null ? graph.reroutes?.get?.(l.out) : null
-        if (!tin && !tout) { l.in = l.out = null; continue }
-        if (!tin || !tout) { l.in = l.out = null; continue } // survivor stays a plain dot (ext-off deletion)
+        if (!tin || !tout) {
+          // Missing teeth (ext-off deletion, undo): any survivor stays a plain dot.
+          l.in = l.out = null
+          finish(null)
+          return
+        }
         scrub(tin)
         scrub(tout)
-        if (wired(tin) || wired(tout)) continue
+        if (wired(tin) || wired(tout)) { finish(tout); return }
         graph.removeReroute(l.in)
         graph.removeReroute(l.out)
         l.in = l.out = null
-      }
+        finish(null)
+      })
       // No auto-decompose: an all-empty bussed comb is still a bus segment.
     } else {
       comb.lanes = comb.lanes.filter((l) => {
@@ -194,6 +239,37 @@ export function combPass(graph, canvas) {
       if (l.out != null) idx.set(l.out, { comb, lane, side: 'out' })
     })
   }
+  // Restore-on-driver-death: an override whose SOURCE died takes its riders down
+  // in the same core cascade -- reconnect them from the next driver up, so
+  // "disconnect an override and the channel reverts to what the bus provides".
+  // The origin-alive guard is the whole design: wires removed while their source
+  // still stands were removed on purpose and stay removed. Deepest lanes first,
+  // so a rider tapped far down re-splices its full run; the input-empty check
+  // makes shallower death entries for the same rider no-ops.
+  if (deaths.length) {
+    deaths.sort((a, b) => (b.memo.depth ?? 0) - (a.memo.depth ?? 0))
+    let restored = false
+    for (const d of deaths) {
+      if (!d.memo.riders?.length) continue
+      if (graph.getNodeById(d.memo.origin)) continue
+      for (const rd of d.memo.riders) {
+        const tn = graph.getNodeById(rd.tid)
+        if (!tn || tn.inputs?.[rd.tslot]?.link != null) continue
+        if (tapChannel(graph, d.comb, d.ch, tn, rd.tslot)) restored = true
+      }
+    }
+    if (restored) {
+      // Freshly minted teeth must hit-test and render as teeth THIS frame.
+      idx.clear()
+      for (const comb of recs) {
+        comb.lanes.forEach((l, lane) => {
+          if (l.in != null) idx.set(l.in, { comb, lane, side: 'in' })
+          if (l.out != null) idx.set(l.out, { comb, lane, side: 'out' })
+        })
+      }
+    }
+  }
+  riderMemo = nextRiders
   toothIndex = idx
 
   // Marquee proxy: teeth ARE core-selectable, so a marquee over a gate catches
@@ -696,9 +772,9 @@ export function busTapFloat(graph, comb, k) {
 // uninstalling the extension keeps the overridden value flowing. The old spine
 // below this comb is cleared first (its teeth belong to the shadowed driver's
 // chain); upstream segments keep their wires untouched, so a tap at B still
-// reads the head's value. Deleting the override's source later drops its riders'
-// links (core removes a node's links wholesale) -- no auto-restore in v1; undo
-// brings them back.
+// reads the head's value. The override is symmetric: deleting its source (or
+// pulling its strand out of the gate) reverts the channel -- riders re-tap from
+// the upstream driver (restore-on-driver-death in combPass, detachLane).
 export function busOverrideFrom(graph, comb, k, node, fromSlot, fromRerouteId) {
   if (comb.bus?.from == null || !fromSlot || !node?.connectFloatingReroute) return false
   const chan = headOf(graph, comb)?.bus?.chan?.[k]
@@ -1033,11 +1109,38 @@ export function detachLane(graph, comb, rid) {
   const i = comb.lanes.findIndex((l) => l.in === rid)
   if (i < 0) return false
   if (comb.bus) {
-    // Channels keep their index: the strand rips out (dot + wires follow the
-    // pointer, downstream segments degrade to plain routed links), the slot stays.
+    // Channels keep their index: the strand rips out, the slot stays. Which wires
+    // leave with the dot depends on what the strand IS. A spliced-through tap
+    // (driver upstream) follows the dot -- standard comb detach. An OVERRIDE
+    // strand reverts the channel instead: its riders re-tap from the next driver
+    // up, and only the override's own feed leaves with the pulled dot (which may
+    // evaporate under the pointer when no float rides it -- the override is gone,
+    // that is the point). Same contract as restore-on-driver-death in combPass:
+    // disconnecting an override reverts consumers to what the bus provides.
     const lane = comb.lanes[i]
-    if (lane.out != null && graph.reroutes?.get?.(lane.out)) graph.removeReroute(lane.out)
+    const tout = lane.out != null ? graph.reroutes?.get?.(lane.out) : null
+    let riders = null
+    if (comb.bus.from != null && tout) {
+      const local = drivenBy(graph, tout)
+      const upComb = records(graph).find((c) => c.id === comb.bus.from)
+      const up = upComb ? channelSource(graph, upComb, i) : null
+      if (local && up && (up.origin.node !== local.node || up.origin.slot !== local.slot)) {
+        riders = []
+        for (const id of tout.linkIds ?? []) {
+          const ll = graph._links?.get?.(Number(id))
+          if (!ll) continue
+          const tail = toothOf(ll.parentId)
+          riders.push({ id: Number(id), tid: ll.target_id, tslot: ll.target_slot, comb: tail?.comb ?? comb })
+        }
+      }
+    }
+    if (tout) graph.removeReroute(lane.out)
     comb.lanes[i] = { in: null, out: null }
+    for (const rd of riders ?? []) {
+      const tn = graph.getNodeById(rd.tid)
+      graph.removeLink?.(rd.id)
+      if (tn) tapChannel(graph, rd.comb, i, tn, rd.tslot)
+    }
     return true
   }
   const lane = comb.lanes.splice(i, 1)[0]
