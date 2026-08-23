@@ -1,5 +1,6 @@
 # Not shipped in the registry archive -- development-only material.
 # (The archive is git-tracked files minus these; see registry packaging docs.)
 harness/
+.github/
 .gitignore
 docs/
