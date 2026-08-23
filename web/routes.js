@@ -51,6 +51,7 @@ import { nodeById } from "./graph.js";
 import { isOwned, ownerOf, materialiseIn } from "./primitive.js";
 import { anchorOf, invalidate } from "./ledger.js";
 import { stampFloats } from "./routestore.js";
+import { linkSlots } from "./invoke.js";
 
 const FROM = "cablemanagement.from";
 
@@ -146,7 +147,7 @@ export function pass(graph) {
             // parked float on it is removed by core when the link lands.
             const tail = rec[3];
             const chain = tail != null ? graph.getReroute?.(tail) ?? graph.reroutes?.get?.(tail) : null;
-            const link = prov.origin.connect(prov.slot, node, idx, chain ? tail : undefined);
+            const link = linkSlots(prov.origin, prov.slot, node, idx, chain ? tail : undefined);
             const newId = link?.id ?? node.inputs[idx].link;
             if (newId != null) {
               setRec(node, idx, [String(h), Number(hIdx), newId]);
@@ -183,7 +184,7 @@ export function pass(graph) {
             // The pin provides something else now: the route follows its head,
             // re-threading the same reroute chain the wire already rode.
             node.disconnectInput(idx, true);
-            const link = prov.origin.connect(prov.slot, node, idx, tail ?? undefined);
+            const link = linkSlots(prov.origin, prov.slot, node, idx, tail ?? undefined);
             const newId = link?.id ?? node.inputs[idx].link;
             setRec(node, idx, [String(h), Number(hIdx), newId ?? null]);
             summary.resourced.push(`${node.id}:${idx}->${prov.origin.id}:${prov.slot}`);

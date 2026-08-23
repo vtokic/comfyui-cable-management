@@ -23,6 +23,7 @@ import { emit, pointAt } from "./pathing/trace.js";
 import { handlePinDrop, handleGateInDrop, installPinDrops, undimPins, undimCoreSlots } from "./drops.js";
 import { activeGraph } from "./graph.js";
 import { isEnabled } from "./enabled.js";
+import { boundTo } from "./invoke.js";
 
 const state = { patched: false, option: false, PCB: 3 };
 
@@ -195,7 +196,7 @@ function tryDropSeams() {
   }
   {
     lc.__cablemanagementDrop = true;
-    const origDropOnNothing = lc.dropOnNothing.bind(lc);
+    const origDropOnNothing = boundTo(lc.dropOnNothing, lc);
     lc.dropOnNothing = (event) => {
       // The graph ON SCREEN -- app.graph is the root even inside a subgraph, and a
       // root reroute can sit within snap range of subgraph coordinates (positions
@@ -305,7 +306,7 @@ function tryDropSeams() {
     };
     // Pins straddle the node's right edge, so a drop on one usually hit-tests as
     // the NODE and never reaches dropOnNothing -- the pin must win first here too.
-    const origDropOnNode = lc.dropOnNode.bind(lc);
+    const origDropOnNode = boundTo(lc.dropOnNode, lc);
     lc.dropOnNode = (node, event) => {
       if (event && activeGraph(app) && isEnabled()) {
         try {
@@ -321,7 +322,7 @@ function tryDropSeams() {
     // in-pin handler must intercept this seam as well (measured: output-drags
     // on a live lane's in-pin no-opped, core has no swap-through-reroute).
     if (typeof lc.dropOnReroute === "function") {
-      const origDropOnReroute = lc.dropOnReroute.bind(lc);
+      const origDropOnReroute = boundTo(lc.dropOnReroute, lc);
       lc.dropOnReroute = (reroute, event) => {
         if (event && reroute && activeGraph(app)) {
           try {

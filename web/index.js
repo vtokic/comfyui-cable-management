@@ -37,6 +37,7 @@ import { isEnabled, setEnabled } from "./enabled.js";
 import { setDebugView, debugViewActive } from "./ledger.js";
 import { reconcile as routesReconcile, installGhostRender } from "./routes.js";
 import { dump as routestoreDump } from "./routestore.js";
+import { boundTo } from "./invoke.js";
 
 const SETTING = "cablemanagement.enabled";
 const DEBUG_SETTING = "cablemanagement.debug";
@@ -298,7 +299,7 @@ const sizeRestore = new Map(); // nodeId -> [w, h], consumed on apply
 let origLoadGraphData = null;
 function wrapLoadGraphData() {
   if (origLoadGraphData || typeof app.loadGraphData !== "function") return;
-  origLoadGraphData = app.loadGraphData.bind(app);
+  origLoadGraphData = boundTo(app.loadGraphData, app);
   app.loadGraphData = async (graphData, ...rest) => {
     try {
       sizeRestore.clear();
@@ -325,7 +326,7 @@ let origGraphToPrompt = null;
  */
 function wrapGraphToPrompt() {
   if (origGraphToPrompt || typeof app.graphToPrompt !== "function") return;
-  origGraphToPrompt = app.graphToPrompt.bind(app);
+  origGraphToPrompt = boundTo(app.graphToPrompt, app);
   app.graphToPrompt = async (...args) => {
     const res = await origGraphToPrompt(...args);
     try {

@@ -1,7 +1,7 @@
 [project]
 name = "cable-management"
 description = "ComfyUI has spaghetti issues. Cable management for the node graph: daisy-chained links, PCB-style routing, ribbon cables, and proper right-to-left wrapping support."
-version = "1.2.1"
+version = "1.2.2"
 license = { file = "LICENSE" }
 
 [project.urls]

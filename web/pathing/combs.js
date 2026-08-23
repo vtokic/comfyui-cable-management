@@ -12,6 +12,7 @@
 //
 // PoC surface: programmatic API only (window.__cablemanagementCombs). Gestures come after.
 import { offsetStrand, route } from './router.js'
+import { linkSlots } from '../invoke.js'
 import { activeGraph, nodeFromId } from '../graph.js'
 import { carriedLinkOf, migrateFloatFrom, provenanceOf, recordProvenance, settleCarriedLink } from '../reanchor.js'
 import { floatSrc, routeSrc, unclaim } from '../routestore.js'
@@ -741,7 +742,7 @@ function joinLane(graph, comb, reroute) {
   for (const l of links) {
     const t = graph.getNodeById(l.target_id) ?? graph.getNodeById(Number(l.target_id))
     if (!t) continue
-    const nl = srcNode.connect(l.origin_slot, t, l.target_slot, lane.out)
+    const nl = linkSlots(srcNode, l.origin_slot, t, l.target_slot, lane.out)
     if (nl && host) recordProvenance(t, l.target_slot, host, Number(apparent[1]), nl.id)
   }
   unclaim(graph, 'reroutes', reroute.id)
@@ -827,7 +828,7 @@ export function gestureFloatingEnroll(graph, lc, comb) {
       const lane = laneWithSource(graph, comb, carried.origin_id, carried.origin_slot, apparent)
       const srcNode = lane && (graph.getNodeById(carried.origin_id) ?? graph.getNodeById(Number(carried.origin_id)))
       if (srcNode && tNode) {
-        const nl = srcNode.connect(carried.origin_slot, tNode, carried.target_slot, lane.out)
+        const nl = linkSlots(srcNode, carried.origin_slot, tNode, carried.target_slot, lane.out)
         if (nl) {
           const host = apparent && (graph.getNodeById(apparent[0]) ?? graph.getNodeById(Number(apparent[0])))
           if (host) recordProvenance(tNode, carried.target_slot, host, Number(apparent[1]), nl.id)

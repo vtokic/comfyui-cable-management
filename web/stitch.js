@@ -20,6 +20,7 @@ import { activeGraph, nodeById } from "./graph.js";
 import { invalidate } from "./ledger.js";
 import { recordProvenance, recordGateProvenance } from "./reanchor.js";
 import { isEnabled } from "./enabled.js";
+import { boundTo, linkSlots } from "./invoke.js";
 
 const STITCH = "cablemanagement.stitch";
 const STITCH_FROM = "cablemanagement.stitchFrom"; // [hostId, hostIndex] -- the pin the gesture came from
@@ -74,8 +75,8 @@ export function stitchGates(graph, inSlot, outSlot, x, y, from) {
   graph.add(R);
   R.properties[STITCH] = true;
   if (from) R.properties[STITCH_FROM] = [String(from[0]), from[1]];
-  const a = cin.connect(R.inputs[0], R);
-  const b = cout.connect(R.outputs[0], R);
+  const a = linkSlots(cin, R.inputs[0], R);
+  const b = linkSlots(cout, R.outputs[0], R);
   if (!a || !b) {
     try {
       graph.remove(R);
@@ -135,7 +136,7 @@ function healSegment(graph, R, inLink, out) {
     const outSlot = graph.outputs?.[out.target_slot];
     const O = nodeById(graph, inLink.origin_id);
     const src = O?.outputs?.[inLink.origin_slot];
-    const nl = outSlot && src ? outSlot.connect(src, O) : null;
+    const nl = outSlot && src ? linkSlots(outSlot, src, O) : null;
     if (nl && host) recordGateProvenance(graph, nl, host, rec[1]);
     return;
   }
@@ -144,10 +145,10 @@ function healSegment(graph, R, inLink, out) {
   let nl = null;
   if (fromInGate(inLink)) {
     T.disconnectInput(out.target_slot);
-    nl = graph.inputs?.[inLink.origin_slot]?.connect(T.inputs[out.target_slot], T) ?? null;
+    nl = linkSlots(graph.inputs?.[inLink.origin_slot], T.inputs[out.target_slot], T) ?? null;
   } else {
     const O = nodeById(graph, inLink.origin_id);
-    nl = O ? O.connect(inLink.origin_slot, T, out.target_slot) ?? null : null;
+    nl = O ? linkSlots(O, inLink.origin_slot, T, out.target_slot) ?? null : null;
   }
   if (nl && host && T.properties) recordProvenance(T, out.target_slot, host, rec[1], nl.id);
 }
@@ -177,7 +178,7 @@ export function install(app) {
   lc.events?.addEventListener?.("reset", () => {
     lc.__cablemanagementBoundaryPin = null;
   });
-  const orig = lc.dropOnIoNode.bind(lc);
+  const orig = boundTo(lc.dropOnIoNode, lc);
   lc.dropOnIoNode = (ioNode, event) => {
     if (!isEnabled()) return orig(ioNode, event);
     try {

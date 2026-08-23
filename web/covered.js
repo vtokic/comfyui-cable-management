@@ -20,6 +20,7 @@ import { stitchGates, isStitch } from "./stitch.js";
 import { nodeById, originOf } from "./graph.js";
 import { invalidate } from "./ledger.js";
 import { gateClaims } from "./routestore.js";
+import { linkSlots } from "./invoke.js";
 
 const HOST = "cablemanagement.host";
 const HOST_SLOT = "cablemanagement.hostSlot";
@@ -70,7 +71,7 @@ export function migrateCovered(graph) {
               moved = true;
           } else {
             const src = origin.node.outputs?.[origin.slot];
-            const nl = src ? outSlot.connect(src, origin.node) : null;
+            const nl = src ? linkSlots(outSlot, src, origin.node) : null;
             if (nl) {
               recordGateProvenance(graph, nl, host, i);
               moved = true;
@@ -82,9 +83,9 @@ export function migrateCovered(graph) {
           let nl = null;
           if (fromGate) {
             target.disconnectInput(link.target_slot);
-            nl = graph.inputs?.[origin.slot]?.connect(target.inputs[link.target_slot], target) ?? null;
+            nl = linkSlots(graph.inputs?.[origin.slot], target.inputs[link.target_slot], target) ?? null;
           } else {
-            nl = origin.node.connect(origin.slot, target, link.target_slot) ?? null;
+            nl = linkSlots(origin.node, origin.slot, target, link.target_slot) ?? null;
           }
           if (nl) {
             recordProvenance(target, link.target_slot, host, i, nl.id);
@@ -173,14 +174,14 @@ export function migrateUncovered(graph) {
     let moved = false;
     try {
       for (const { T, s } of consumers) {
-        const nl = prim.connect(0, T, s);
+        const nl = linkSlots(prim, 0, T, s);
         if (nl) {
           recordProvenance(T, s, host, i, nl.id);
           moved = true;
         }
       }
       for (const s of gateSlots) {
-        const nl = graph.outputs?.[s]?.connect(out, prim);
+        const nl = linkSlots(graph.outputs?.[s], out, prim);
         if (nl) {
           recordGateProvenance(graph, nl, host, i);
           moved = true;
@@ -192,7 +193,7 @@ export function migrateUncovered(graph) {
           if (!l || !targetsGate(l)) continue;
           // connect replaces the stitch's link on the gate slot; the unbridged
           // stitch is the reaper's next meal
-          const nl = graph.outputs?.[l.target_slot]?.connect(out, prim);
+          const nl = linkSlots(graph.outputs?.[l.target_slot], out, prim);
           if (nl) {
             recordGateProvenance(graph, nl, host, i);
             moved = true;

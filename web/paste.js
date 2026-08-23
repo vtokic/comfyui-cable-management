@@ -36,6 +36,7 @@ import { recordProvenance, forgetProvenance } from "./reanchor.js";
 import { originOf, nodeById } from "./graph.js";
 import { invalidate } from "./ledger.js";
 import { isEnabled } from "./enabled.js";
+import { linkSlots } from "./invoke.js";
 
 const HOST = "cablemanagement.host";
 const FROM = "cablemanagement.from";
@@ -160,7 +161,7 @@ function fixEntry(graph, results, { n2, idx, hostOld, hostSlot }) {
       return true;
     }
     if (slotLink != null) n2.disconnectInput(idx);
-    const ll = po.node.connect(po.slot, n2, idx) ?? null;
+    const ll = linkSlots(po.node, po.slot, n2, idx) ?? null;
     if (ll) recordProvenance(n2, idx, hostNew, hostSlot, ll.id);
     else forgetProvenance(n2, idx);
     return true;

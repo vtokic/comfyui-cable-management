@@ -18,6 +18,7 @@ import { stitchGates, isStitch } from "./stitch.js";
 import { invalidate, anchorOf } from "./ledger.js";
 import { combAt, laneAt, toothOf, laneEnds, typeMatch } from "./pathing/combs.js";
 import { pendingPin } from "./drag.js";
+import { linkSlots } from "./invoke.js";
 
 
 /** Nearest pin within 12 graph units, filtered to the dragged type. */
@@ -169,7 +170,7 @@ export function handleGateInDrop(app, lc, event, viaReroute) {
     let rlDid = false;
     for (const t of targets) {
       if (!typeMatch(rl.fromSlot?.type, t.node.inputs[t.slot]?.type)) continue;
-      const link = srcNode.connect(srcIdx, t.node, t.slot, lane.out);
+      const link = linkSlots(srcNode, srcIdx, t.node, t.slot, lane.out);
       if (link) {
         rlDid = did = true;
         if (pin) recordProvenance(t.node, t.slot, pin.host, pin.index, link.id);
